@@ -395,3 +395,102 @@ router.get('/base/get', function(req, res) {
 ```
 
 ![params解析](https://raw.githubusercontent.com/oldqin97/cloudImg/main/blogs/picture/20221219021337.png)
+
+### 3. 处理请求 body 数据
+
+`XMLHttpRequest` 对象实例的 `send` 方法发送请求, 支持的参数`Document`,`BodyInit`类型, BodyInit 包括了 Blob, BufferSource, FormData, URLSearchParams, ReadableStream、USVString，当没有数据的时候，我们还可以传入 null。
+
+```js
+axios({
+  method: 'post',
+  url: '/base/post',
+  data: {
+    a: 1,
+    b: 2
+  }
+})
+```
+
+这个 `data`是不能直接传给 send 函数的,需要转换成 JSON 字符串
+
+#### 3.1 transformRequest 函数实现
+
+`helpers/data.ts`
+
+```ts
+import { isPlainObject } from './util'
+
+export function transformRequest(data: any): any {
+  if (isPlainObject(data)) {
+    return JSON.stringify(data)
+  }
+  return data
+}
+```
+
+`helpers/util.js`
+
+```ts
+export function isPlainObject(val: any): val is Object {
+  return toString.call(val) === '[object Object]'
+}
+```
+
+这里为什么要使用 `isPlainObject` 函数判断，而不用之前的 `isObject` 函数呢，因为 `isObject` 的判断方式，对于 `FormData`、`ArrayBuffer` 这些类型，`isObject` 判断也为 true，但是这些类型的数据我们是不需要做处理的，而 `isPlainObject` 的判断方式，只有我们定义的普通 JSON 对象才能满足。
+
+`index.ts`
+
+```ts
+import { transformRequest } from './helpers/data'
+
+function processConfig(config: AxiosRequestConfig): void {
+  config.url = transformURL(config)
+  config.data = transformRequestData(config)
+}
+
+function transformRequestData(config: AxiosRequestConfig): any {
+  return transformRequest(config.data)
+}
+```
+
+**测试 demo**
+
+`base/app.ts`
+
+```ts
+axios({
+  method: 'post',
+  url: '/base/post',
+  data: {
+    a: 1,
+    b: 2
+  }
+})
+
+const arr = new Int32Array([21, 31])
+axios({
+  method: 'post',
+  url: '/base/buffer',
+  data: arr
+})
+```
+
+1. **post**
+
+![post-send](https://raw.githubusercontent.com/oldqin97/cloudImg/main/blogs/picture/20221219034443.png)
+
+![payload](https://raw.githubusercontent.com/oldqin97/cloudImg/main/blogs/picture/20221219034513.png)
+
+![response](https://raw.githubusercontent.com/oldqin97/cloudImg/main/blogs/picture/20221219034522.png)
+
+2. **buffer**
+
+![buffer-send](https://raw.githubusercontent.com/oldqin97/cloudImg/main/blogs/picture/20221219034648.png)
+
+![payload](https://raw.githubusercontent.com/oldqin97/cloudImg/main/blogs/picture/20221219034708.png)
+
+![response](https://raw.githubusercontent.com/oldqin97/cloudImg/main/blogs/picture/20221219034716.png)
+
+我们发现 /base/buffer 的请求是可以拿到数据，但是 base/post 请求的 response 里却返回的是一个空对象
+
+实际上是因为我们虽然执行 send 方法的时候把普通对象 data 转换成一个 JSON 字符串，但是我们请求 header 的 Content-Type 是 text/plain;charset=UTF-8，导致了服务端接受到请求并不能正确解析请求 body 的数据

@@ -1,4 +1,4 @@
-import { isDate, isObject } from './utils'
+import { isDate, isPlainObject } from './utils'
 
 /**
  * 格式化字符
@@ -49,7 +49,7 @@ export function buildURL(url: string, params?: any) {
       // 参数值为Date时,处理逻辑
       if (isDate(val)) {
         val = val.toISOString()
-      } else if (isObject(val)) {
+      } else if (isPlainObject(val)) {
         // 参数值为Object时,处理逻辑
         val = JSON.stringify(val)
       }
