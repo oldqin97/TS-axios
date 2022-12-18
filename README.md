@@ -494,3 +494,141 @@ axios({
 我们发现 /base/buffer 的请求是可以拿到数据，但是 base/post 请求的 response 里却返回的是一个空对象
 
 实际上是因为我们虽然执行 send 方法的时候把普通对象 data 转换成一个 JSON 字符串，但是我们请求 header 的 Content-Type 是 text/plain;charset=UTF-8，导致了服务端接受到请求并不能正确解析请求 body 的数据
+
+#### 3.2 添加请求 headers
+
+`helpers/headers.ts`
+
+```ts
+import { isPlainObject } from './utils'
+
+/**
+ * 由于content-type不区分大小写,所有为了规范和美观,在这里对Content-Type进行格式化
+ * @param {any} headers
+ * @param {string} normalizedName
+ * @returns {void}
+ */
+function normalizeHeaderName(headers: any, normalizedName: string) {
+  if (!headers) return
+  Object.keys(headers).forEach(name => {
+    if (name !== normalizedName && name.toUpperCase() === normalizedName.toUpperCase()) {
+      headers[normalizedName] = headers[name]
+      delete headers[name]
+    }
+  })
+}
+
+export function processHeaders(headers: any, data: any) {
+  normalizeHeaderName(headers, 'Content-Type')
+  console.log('headers:', headers)
+
+  // 当存在data 但是 又没有给header属性的时候
+  if (isPlainObject(data)) {
+    if (headers && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json;charset=utf-8'
+    }
+  }
+
+  console.log('headers:', headers)
+  return headers
+}
+```
+
+header 属性是大小写不敏感的, 所有将 Content-Type 属性名格式化
+
+`types/index.ts`
+
+```ts
+export interface AxiosRequestConfig {
+  url: string
+  method?: Method
+  data?: any
+  params?: any
+  headers?: any
+}
+```
+
+修改接口类型的定义,添加 headers 的可选属性
+
+`index.ts`
+
+```ts
+import { processHeaders } from './helpers/headers'
+
+function processConfig(config: AxiosRequestConfig): void {
+  config.url = transformURL(config)
+  config.headers = transformHeaders(config)
+  config.data = transformRequestData(config)
+}
+
+function transformHeaders(config: AxiosRequestConfig) {
+  const { headers = {}, data } = config
+  return processHeaders(headers, data)
+}
+```
+
+因为我们处理 header 依赖了 data, 所有在处理请求 body 数据之前处理请求 header
+
+`xhr.ts`
+
+```ts
+import { AxiosRequestConfig } from './types'
+
+export default function xhr(config: AxiosRequestConfig) {
+  const { data = null, url, method = 'GET', headers } = config
+
+  const request = new XMLHttpRequest()
+
+  request.open(method.toUpperCase(), url, true)
+
+  Object.keys(headers).forEach(name => {
+    // 当data不存在 但是又给了header的时候, 删除header的属性
+    if (data === null && name.toLowerCase() === 'content-type') {
+      delete headers[name]
+    } else {
+      // 设置header属性
+      request.setRequestHeader(name, headers[name])
+    }
+  })
+
+  request.send(data)
+}
+```
+
+当我们传入的 data 为空的时候，请求 header 配置 Content-Type 是没有意义的，于是我们把它删除。
+
+**测试 demo**
+
+```ts
+axios({
+  method: 'post',
+  url: '/base/post',
+  data: {
+    a: 1,
+    b: 2
+  }
+})
+
+axios({
+  method: 'post',
+  url: '/base/post',
+  headers: {
+    'content-type': 'application/json;'
+  },
+  data: {
+    a: 1,
+    b: 2
+  }
+})
+
+const paramsString = 'q=URLUtils.searchParams&topic=api'
+const searchParams = new URLSearchParams(paramsString)
+
+axios({
+  method: 'post',
+  url: '/base/post',
+  data: searchParams
+})
+```
+
+通过 demo 我们可以看到，当我们请求的数据是普通对象并且没有配置 headers 的时候，会自动为其添加 Content-Type:application/json;charset=utf-8；同时我们发现当 data 是某些类型如 URLSearchParams 的时候，浏览器会自动为请求 header 加上合适的 Content-Type。
